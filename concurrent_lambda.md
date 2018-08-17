@@ -12,7 +12,7 @@ In the past there has been an "insert code here" cloud PaaS built around VMs and
 As you go down the list, you get more responsive scaling and more efficient economics.  If AWS was to release the first FaaS-based PaaS, it could use that to differentiate itself from the other cloud providers.  Even though Lambda revenue might decrease in the short term, API Gateway would probably increase due to people hosting higher traffic APIs on Lambda.  Also more open source attention would be drawn to running Express, Hapi, and the other web/api frameworks on Lambda.
 
 ## User-Facing Configuration Options
-1. **Max Parallel Requests**: The user would need to set a maximum parallel requests option.  The default of 0 would maintain the current behavior of a new Lambda invocation on each request.
+1. **Max Parallel Requests**: The user would need to set a maximum parallel requests option.  The default of 0 would maintain the current behavior of a new Lambda invocation on each request.  Most cases would probably be between 10-20 parallel requests before you would want to scale to another Lambda invocation.
 2. **Max Runtime**:
     1. Keep the current hard limit 5 minute max runtime and use the max duration parameter to limit a single event's processing time.  For example, with a 30 second max duration, the Lambda *could* (but not required to if all current requests had completed) continue to launch tasks up until the 4:30 mark.
     2. Keep the current parameter controlling the invocation runtime and introduce a new parameter limiting a single event's processing time.
