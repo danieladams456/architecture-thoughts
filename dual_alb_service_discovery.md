@@ -15,6 +15,7 @@
 
 ## Diagram
 ![dual alb diagram](images/dual_alb.png)
+
 Made with [draw.io](https://www.draw.io), XML definition [here](./images/dual_alb_drawio.xml).
 
 ## Terraform

@@ -11,6 +11,7 @@ This pattern is already in use by other companies like [Fender Digital](https://
 
 ## Diagram
 ![DynamoDB + Elasticsearch diagram](images/dynamodb_elasticsearch.png)
+
 Made with [draw.io](https://www.draw.io), XML definition [here](./images/dynamodb_elasticsearch_drawio.xml).
 
 ## Replication Code
