@@ -1,1 +1,1 @@
-# Multiregion Static Sites with S3+Cloudfront
+# Multiregion Static Sites with S3 + Cloudfront
