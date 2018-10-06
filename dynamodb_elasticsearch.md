@@ -1,13 +1,94 @@
 # Using DynamoDB + Elasticsearch for OLTP + OLAP
 
 ## Theory
-DynamoDB is a scalable, performant, cost-effective, low maintenance database solution.  Too good to be true, right?  As always, there are tradeoffs.  NoSQL and especially DynamoDB have very limited query options and require good design up front to make it work effectively for your application.  DynamoDB is built specifically for transactional workloads (OLTP), but most applications also need some analytics/reports (OLAP) or search capabilities.  Pairing the two database technologies helps get the best of both worlds.
+DynamoDB is a scalable, performant, cost-effective, low maintenance database solution.  Too good to be true, right?  As always, there are tradeoffs.  NoSQL and especially DynamoDB have very limited query options and require a thoughtful design up front to work effectively for your application.  DynamoDB is built specifically for transactional workloads (OLTP), but most applications also need some analytics/reports (OLAP) or search capabilities.  Pairing the two database technologies helps get the best of both worlds.
 
-Why not just use relational/RDS/Aurora?  Relational is sort of the middle of the road approach that is pretty flexible and can handle both, but not as efficiently.  To do partial text search over several columns would require chained `LIKE` statements which isn't ideal.  In this case I am proposing a design for a low scale but complex app.  However, DynamoDB and Elasticsearch can both scale horizontally very efficiently and thus can be used in web scale applications.
+Why not just use relational/RDS/Aurora?  Relational is sort of the middle of the road approach that is pretty flexible and can handle both, but not as efficiently.  To do partial text search over several columns would require chained `LIKE` statements, which is not ideal.  In this case I am proposing a design for a low scale but complex app.  However, DynamoDB and Elasticsearch can both efficiently scale horizontally and thus can be used in web scale applications.
 
-This solution is also more cost effective.  When building a microservices based application, databases should not be shared between microservices to ensure they are not coupled from change management or availability perspectives.  An application with 5 data services, 3 node clusters, and 4 environments is a total of 60 database servers!  On the other hand, an equivalent app using this pattern would have just 11 servers - much more cost effective!  This is because the Elasticsearch is not the transactional system of record and can be regenerated at any time from the system of record.
+This solution is also more cost effective.  When building a microservices based application, databases should not be shared between microservices to ensure they are not coupled from change management or availability perspectives.  An application with 5 data services, 3 node clusters, and 4 environments requires a total of 60 database servers!  On the other hand, an equivalent app using this pattern would have just 11 servers.  This is because the Elasticsearch is not the transactional system of record and can be regenerated at any time from DynamoDB.  This allows us to share one cluster for the whole application.  It still follows the 1:1 relationship between microservice and DB since it would be fronted by a single search microservice.
+
+This pattern is already in use by other companies like [Fender Digital](https://www.fenderdigital.com).  They talked about it on the AWS blog [Combining DynamoDB and Amazon Elasticsearch with Lambda](https://aws.amazon.com/blogs/startups/combining-dynamodb-and-amazon-elasticsearch-with-lambda).  There is also a workshop at Re:Invent 2018 covering this topic.  My solution expands on this idea to do a generic mapping from many DynamoDB tables to one Elasticsearch cluster, optimized for a microservices architecture application.
+
 
 ## Replication Code
+This code was based on the sample function in the [AWS Elasticsearch Service docs](https://docs.aws.amazon.com/elasticsearch-service/latest/developerguide/es-aws-integrations.html#es-aws-integrations-dynamodb-es).  Here are some of the changes I made to make it more generic.
+1. Pull the region from the AWS managed region environment variable, and pass in the elasticsearch endpoint via environment variable managed by Terraform.
+2. Create a function to get the type of a DynamoDB item.  This is used to determine in which index to put it in Elasticsearch.  As mentioned below, Elasticsearch 6.x only allows a single type per index.  If the `TYPE` attribute is missing, fall back to `default`.  This is the only attribute that needs to be standardized across the tables.
+3. Create a function to generate the Elasticsearch key based off the DynamoDB key[s].  It can handle arbitrary key names and a solo partition key or partition+sort keys.
+4. Use the [dynamodb-json](https://pypi.org/project/dynamodb-json) to strip out the type information and transform the DynamoDB item to standard JSON.
+
+*Disclaimer: this code is not production ready.  Use at your own risk*.
+```python
+import os
+import json
+
+import boto3
+import requests
+from requests_aws4auth import AWS4Auth
+from dynamodb_json import json_util as ddb_json
+
+# signature v4 signing properties
+region = os.environ.get('AWS_REGION')
+service = 'es'
+credentials = boto3.Session().get_credentials()
+aws_auth = AWS4Auth(credentials.access_key, credentials.secret_key,
+                    region, service, session_token=credentials.token)
+
+# elasticsearch request properties
+es_endpoint = 'https://' + os.environ.get('ELASTICSEARCH_ENDPOINT')
+headers = {'Content-Type': 'application/json'}
+
+
+def lambda_handler(event, context):
+    count = 0
+    for record in event['Records']:
+        """
+        We need the stream type to be NEW_AND_OLD_IMAGES in order to pull
+        the item type out of the deleted item's attributes
+        """
+        if record['eventName'] == 'REMOVE':
+            handle_remove_event(record)
+        else:
+            handle_upsert_event(record)
+        count += 1
+    print(str(count) + ' records processed.')
+
+
+def handle_upsert_event(record):
+    record_key = get_record_key(record)
+    document = ddb_json.loads(record['dynamodb']['NewImage'])
+    record_type = get_record_type(document)
+
+    url = '{}/{}/_doc/{}'.format(es_endpoint, record_type, record_key)
+    r = requests.put(url, auth=aws_auth, json=document, headers=headers)
+
+
+def handle_remove_event(record):
+    record_key = get_record_key(record)
+    document = ddb_json.loads(record['dynamodb']['OldImage'])
+    record_type = get_record_type(document)
+
+    url = '{}/{}/_doc/{}'.format(es_endpoint, record_type, record_key)
+    r = requests.delete(url, auth=aws_auth)
+
+
+# Helper methods
+def get_record_key(record):
+    """
+    Get the primary key for use as the Elasticsearch ID by dumping all keys so it works across tables.
+    Parse out verbose DynamoDB JSON and don't include any whitespace by using compact separators.
+    """
+    keys = record['dynamodb']['Keys']
+    return json.dumps(ddb_json.loads(keys), separators=(',', ':'))
+
+
+def get_record_type(document):
+    if 'TYPE' in document and type(document['TYPE']) is str:
+        return document['TYPE'].lower()
+    else:
+        return 'default'
+```
+
 
 ## Elasticsearch Sizing - optimize for small data volume since the cluster is scoped to a single application
 - Nodes
