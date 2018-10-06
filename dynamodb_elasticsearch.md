@@ -9,6 +9,9 @@ This solution is also more cost effective.  When building a microservices based 
 
 This pattern is already in use by other companies like [Fender Digital](https://www.fenderdigital.com).  They talked about it on the AWS blog [Combining DynamoDB and Amazon Elasticsearch with Lambda](https://aws.amazon.com/blogs/startups/combining-dynamodb-and-amazon-elasticsearch-with-lambda).  There is also a workshop at Re:Invent 2018 covering this topic.  My solution expands on this idea to do a generic mapping from many DynamoDB tables to one Elasticsearch cluster, optimized for a microservices architecture application.
 
+## Diagram
+![DynamoDB + Elasticsearch diagram](images/dynamodb_elasticsearch.png)
+Made with [draw.io](https://www.draw.io), XML definition [here](./images/dynamodb_elasticsearch_drawio.xml).
 
 ## Replication Code
 This code was based on the sample function in the [AWS Elasticsearch Service docs](https://docs.aws.amazon.com/elasticsearch-service/latest/developerguide/es-aws-integrations.html#es-aws-integrations-dynamodb-es).  Here are some of the changes I made to make it more generic.
@@ -88,6 +91,9 @@ def get_record_type(document):
     else:
         return 'default'
 ```
+
+## Other Replication Notes
+If you app is in an enterprise where there are scheduled maintenance windows and can handle a couple minutes of downtime, you can delete all the Elasticsearch indices and reload them from DynamoDB during off hours over the weekend.  This helps ensure over time the DynamoDB tables and Elasticsearch don't drift apart for whatever reason.  I'm sure it could also be done in a blue/green fashion with no downtime using a second Elasticsearch cluster, but that would add more complexity.
 
 
 ## Elasticsearch Sizing - optimize for small data volume since the cluster is scoped to a single application
